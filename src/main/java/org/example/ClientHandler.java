@@ -2,121 +2,74 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
-public class ClientHandler implements Runnable {
-    private final Socket clientSocket;
+public class ClientHandler extends Thread {
+    private final Socket socket;
+    private final TopicManager topicManager;
 
-    public ClientHandler(Socket clientSocket) {
-        this.clientSocket = clientSocket;
+    public ClientHandler(Socket socket, TopicManager topicManager) {
+        this.socket = socket;
+        this.topicManager = topicManager;
     }
 
-    @Override
     public void run() {
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true)) {
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
 
-            String request;
-            while ((request = in.readLine()) != null) {
-                if (request.startsWith("CREATE")) {
-                    createTopic(request, out);
-                } else if (request.startsWith("LIST")) {
-                    listTopics(out);
-                } else if (request.startsWith("PUBLISH")) {
-                    handlePublish(request, out);
-                } else if (request.startsWith("SUBSCRIBE")) {
-                    handleSubscribe(request, out);
-                } else {
-                    out.println("Invalid command.");
+            out.println("CONNECTED: Welcome to KafkaLikeBroker");
+
+            String input;
+            String currentGroupId = null;
+            String currentConsumerId = null;
+
+            while ((input = in.readLine()) != null) {
+                if (input.startsWith("REGISTER:")) {
+                    String[] parts = input.split(":", 3);
+                    currentGroupId = parts[1];
+                    currentConsumerId = parts[2];
+                    out.println("REGISTERED: Consumer " + currentConsumerId + " in group " + currentGroupId);
+                }
+                else if (input.startsWith("PRODUCE:")) {
+                    String[] parts = input.split(":", 3);
+                    if (parts.length < 3) {
+                        out.println("ERROR: Invalid produce format. Use PRODUCE:topic:message");
+                        continue;
+                    }
+                    String topic = parts[1];
+                    String message = parts[2];
+
+                    topicManager.addMessage(topic, message);
+                    out.println("ACK: Message stored in topic " + topic);
+                }
+                else if (input.startsWith("CONSUME:")) {
+                    String[] parts = input.split(":", 4);
+                    if (parts.length < 4) {
+                        out.println("ERROR: Invalid consume format. Use CONSUME:topic:groupId:consumerId");
+                        continue;
+                    }
+                    String topic = parts[1];
+                    String groupId = parts[2];
+                    String consumerId = parts[3];
+
+                    String message = topicManager.consumeMessage(topic, groupId, consumerId);
+                    out.println("MESSAGE: " + (message != null ? message : "NO_MESSAGES"));
+                }
+                else if (input.startsWith("DISCONNECT:")) {
+                    String[] parts = input.split(":", 3);
+                    if (parts.length >= 3) {
+                        currentGroupId = parts[1];
+                        currentConsumerId = parts[2];
+                    }
+                    out.println("DISCONNECTED: Goodbye!");
+                    socket.close();
+                    break;
+                }
+                else {
+                    out.println("ERROR: Unknown command");
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
-        }
-    }
-
-    private void createTopic(String request, PrintWriter out) {
-        String[] parts = request.split(" ");
-        if (parts.length < 2) {
-            out.println("Usage: CREATE <topic>");
-            return;
-        }
-        String topic = parts[1];
-        Map<String, List<String>> topics = KafkaBroker.getTopics();
-        Map<String, List<PrintWriter>> subscribers = KafkaBroker.getSubscribers();
-
-        if (topics.containsKey(topic)) {
-            out.println("Topic already exists.");
-        } else {
-            topics.put(topic, new ArrayList<>());
-            subscribers.put(topic, new ArrayList<>());
-            out.println("Topic '" + topic + "' created successfully.");
-        }
-    }
-
-    private void listTopics(PrintWriter out) {
-        Map<String, List<String>> topics = KafkaBroker.getTopics();
-        if (topics.isEmpty()) {
-            out.println("No topics available.");
-        } else {
-            out.println("Available topics: " + String.join(", ", topics.keySet()));
-        }
-    }
-
-    private void handlePublish(String request, PrintWriter out) {
-        String[] parts = request.split(" ", 3);
-        if (parts.length < 3) {
-            out.println("Usage: PUBLISH <topic> <message>");
-            out.flush();
-            return;
-        }
-        String topic = parts[1];
-        String message = parts[2];
-
-        Map<String, List<String>> topics = KafkaBroker.getTopics();
-        Map<String, List<PrintWriter>> subscribers = KafkaBroker.getSubscribers();
-
-        // If the topic doesn't exist, create it
-        topics.putIfAbsent(topic, new ArrayList<>());
-        subscribers.putIfAbsent(topic, new ArrayList<>());
-
-        // Add the message to the topic's message list
-        topics.get(topic).add(message);
-
-        // Notify all active subscribers of this topic
-        for (PrintWriter subscriber : subscribers.get(topic)) {
-            subscriber.println("New message on topic '" + topic + "': " + message);
-            subscriber.flush();
-        }
-
-        // Send a response back to the original publisher
-        out.println("Message published successfully.");
-        out.flush();
-    }
-
-    private void handleSubscribe(String request, PrintWriter out) {
-        String[] parts = request.split(" ");
-        if (parts.length < 2) {
-            out.println("Usage: SUBSCRIBE <topic>");
-            return;
-        }
-        String topic = parts[1];
-
-        Map<String, List<String>> topics = KafkaBroker.getTopics();
-        Map<String, List<PrintWriter>> subscribers = KafkaBroker.getSubscribers();
-
-        if (topics.containsKey(topic)) {
-            out.println("Subscribed to topic '" + topic + "'.");
-            subscribers.get(topic).add(out);
-
-            // Send all existing messages in the topic
-            for (String message : topics.get(topic)) {
-                out.println("Message: " + message);
-            }
-        } else {
-            out.println("Topic '" + topic + "' does not exist.");
         }
     }
 }

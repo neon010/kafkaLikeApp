@@ -3,31 +3,23 @@ package org.example;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.*;
 
 public class KafkaBroker {
     private static final int PORT = 9092;
-    private static final Map<String, List<String>> topics = new HashMap<>();
-    private static final Map<String, List<PrintWriter>> subscribers = new HashMap<>();
+    private static final TopicManager topicManager = new TopicManager();
 
-    public static void main(String[] args) {
-        System.out.println("Kafka Broker started on port " + PORT);
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            while (true) {
+    public static void main(String[] args) throws IOException {
+        ServerSocket serverSocket = new ServerSocket(PORT);
+        System.out.println("Broker is running on port " + PORT);
+
+        while (true) {
+            try {
                 Socket clientSocket = serverSocket.accept();
-                new Thread(new ClientHandler(clientSocket)).start();
+                System.out.println("New client connected: " + clientSocket);
+                new ClientHandler(clientSocket, topicManager).start();
+            } catch (IOException e) {
+                System.err.println("Error accepting client connection: " + e.getMessage());
             }
-        } catch (IOException e) {
-            e.printStackTrace();
         }
-    }
-
-    // Getter methods for ClientHandler to access the static collections
-    public static Map<String, List<String>> getTopics() {
-        return topics;
-    }
-
-    public static Map<String, List<PrintWriter>> getSubscribers() {
-        return subscribers;
     }
 }

@@ -2,57 +2,77 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.UUID;
 
 public class KafkaConsumer {
-    private final String brokerAddress;
-    private final int brokerPort;
+    private Socket socket;
+    private PrintWriter out;
     private BufferedReader in;
+    private final String consumerId;
+    private final String groupId;
 
-    public KafkaConsumer(String brokerAddress, int brokerPort) {
-        this.brokerAddress = brokerAddress;
-        this.brokerPort = brokerPort;
+    public KafkaConsumer(String groupId) {
+        this.consumerId = UUID.randomUUID().toString();
+        this.groupId = groupId;
     }
 
-    public void subscribe(String topic) {
-        try (Socket socket = new Socket(brokerAddress, brokerPort);
-             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+    public void connect(String host, int port) {
+        try {
+            socket = new Socket(host, port);
+            out = new PrintWriter(socket.getOutputStream(), true);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-            out.println("SUBSCRIBE " + topic);
-            System.out.println("Subscribed to topic '" + topic + "'. Listening for messages...");
-
-            while (true) {
-                String message = readMessages();
-                if (message != null) {
-                    System.out.println("Received: " + message);
-                }
-            }
+            // Send consumer registration
+            out.println("REGISTER:" + groupId + ":" + consumerId);
+            String response = in.readLine();
+            System.out.println("Broker Response: " + response);
         } catch (IOException e) {
-            System.err.println("Failed to connect to broker: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    String readMessages() {
+    public void subscribe(String topic) {
+        if (socket == null || out == null) {
+            System.out.println("ERROR: Consumer is not connected to broker!");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                while (true) {
+                    out.println("CONSUME:" + topic + ":" + groupId + ":" + consumerId);
+                    String response = in.readLine();
+                    if (!response.contains("NO_MESSAGES")) {
+                        System.out.println("Received: " + response);
+                    }
+                    Thread.sleep(1000);  // Poll interval
+                }
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    public void disconnect() {
         try {
-            return in.readLine();  // Read a single message from the broker
+            if (out != null) {
+                out.println("DISCONNECT:" + groupId + ":" + consumerId);
+            }
+            if (socket != null) socket.close();
+            System.out.println("Consumer disconnected from broker.");
         } catch (IOException e) {
-            System.err.println("Failed to read message: " + e.getMessage());
-            return null;
+            e.printStackTrace();
         }
     }
 
     public static void main(String[] args) {
-        if (args.length < 3) {
-            System.out.println("Usage: java KafkaConsumer <brokerAddress> <port> <topic>");
-            return;
-        }
+//        if (args.length < 2) {
+//            System.out.println("Usage: java KafkaConsumer <group-id> <topic>");
+//            return;
+//        }
 
-        String brokerAddress = args[0];
-        int brokerPort = Integer.parseInt(args[1]);
-        String topic = args[2];
-
-        KafkaConsumer consumer = new KafkaConsumer(brokerAddress, brokerPort);
-        consumer.subscribe(topic);
+        KafkaConsumer consumer = new KafkaConsumer("group1");
+        consumer.connect("localhost", 9092);
+        consumer.subscribe("test-topic");
     }
 }

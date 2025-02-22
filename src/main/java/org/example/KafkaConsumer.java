@@ -2,6 +2,8 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class KafkaConsumer {
@@ -10,6 +12,8 @@ public class KafkaConsumer {
     private BufferedReader in;
     private final String consumerId;
     private final String groupId;
+    private String subscribedTopic;
+    private static final int DEFAULT_POLL_TIMEOUT = 1000; // milliseconds
 
     public KafkaConsumer(String groupId) {
         this.consumerId = UUID.randomUUID().toString();
@@ -36,21 +40,44 @@ public class KafkaConsumer {
             System.out.println("ERROR: Consumer is not connected to broker!");
             return;
         }
+        this.subscribedTopic = topic;
+        System.out.println("Subscribed to topic: " + topic);
+    }
 
-        new Thread(() -> {
-            try {
-                while (true) {
-                    out.println("CONSUME:" + topic + ":" + groupId + ":" + consumerId);
-                    String response = in.readLine();
-                    if (!response.contains("NO_MESSAGES")) {
-                        System.out.println("Received: " + response);
-                    }
-                    Thread.sleep(1000);  // Poll interval
+    public List<String> poll() {
+        return poll(DEFAULT_POLL_TIMEOUT);
+    }
+
+    public List<String> poll(long timeoutMs) {
+        if (subscribedTopic == null) {
+            throw new IllegalStateException("No topic subscribed. Please subscribe to a topic first.");
+        }
+
+        if (socket == null || out == null) {
+            throw new IllegalStateException("Consumer is not connected to broker!");
+        }
+
+        List<String> records = new ArrayList<>();
+        long startTime = System.currentTimeMillis();
+
+        try {
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                out.println("CONSUME:" + subscribedTopic + ":" + groupId + ":" + consumerId);
+                String response = in.readLine();
+
+                if (response != null && !response.contains("NO_MESSAGES")) {
+                    String message = response.replace("MESSAGE: ", "");
+                    records.add(message);
+                } else {
+                    // If no messages, wait a bit before trying again
+                    Thread.sleep(100);
                 }
-            } catch (IOException | InterruptedException e) {
-                e.printStackTrace();
             }
-        }).start();
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        return records;
     }
 
     public void disconnect() {
@@ -71,8 +98,28 @@ public class KafkaConsumer {
 //            return;
 //        }
 
-        KafkaConsumer consumer = new KafkaConsumer("group1");
-        consumer.connect("localhost", 9092);
-        consumer.subscribe("test-topic");
+        KafkaConsumer consumer1 = new KafkaConsumer("group1");
+        KafkaConsumer consumer2 = new KafkaConsumer("group2");
+        consumer1.connect("localhost", 9092);
+        consumer2.connect("localhost", 9092);
+        consumer1.subscribe("test-topic");
+        consumer2.subscribe("test-topic");
+
+        // Example usage with polling
+        try {
+            while (true) {
+                List<String> records1 = consumer1.poll(1000);
+                List<String> records2 = consumer1.poll(1000);
+                for (String record : records1) {
+                    System.out.println("Received on group1: " + record);
+                }
+                for (String record : records2) {
+                    System.out.println("Received on group2: " + record);
+                }
+            }
+        } finally {
+            consumer1.disconnect();
+            consumer2.disconnect();
+        }
     }
 }

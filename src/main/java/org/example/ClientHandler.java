@@ -51,6 +51,8 @@ public class ClientHandler extends Thread {
                     String groupId = parts[2];
                     String consumerId = parts[3];
 
+                    System.out.println("topic: "+ topic+ " groupId: "+ groupId+ " ConsumerID: "+ consumerId);
+
                     String message = topicManager.consumeMessage(topic, groupId, consumerId);
                     out.println("MESSAGE: " + (message != null ? message : "NO_MESSAGES"));
                 }

@@ -3,6 +3,7 @@ package org.example;
 import java.io.*;
 import java.net.Socket;
 import java.util.Properties;
+import java.util.UUID;
 
 public class KafkaProducer {
     private static final String HOST = "localhost";
@@ -58,7 +59,7 @@ public class KafkaProducer {
         }
     }
 
-    public boolean send(String topic, String message) throws IOException {
+    public boolean send(String topic, String key, String message) throws IOException {
         if (!connected) {
             throw new IllegalStateException("Producer is not connected to broker");
         }
@@ -67,13 +68,13 @@ public class KafkaProducer {
             throw new IllegalArgumentException("Topic cannot be null or empty");
         }
 
-        if (message == null) {
-            throw new IllegalArgumentException("Message cannot be null");
+        if (key == null || key.trim().isEmpty()) {
+            throw new IllegalArgumentException("Key cannot be null or empty");
         }
 
         try {
-            // Send the message
-            out.println("PRODUCE:" + topic + ":" + message);
+            // Send the message with key
+            out.println("PRODUCE:" + topic + ":" + key + ":" + message);
 
             // Wait for acknowledgment
             String response = in.readLine();
@@ -86,11 +87,55 @@ public class KafkaProducer {
             }
         } catch (IOException e) {
             System.err.println("Error sending message: " + e.getMessage());
-            // Try to reconnect and retry once
             reconnect();
-            out.println("PRODUCE:" + topic + ":" + message);
+            out.println("PRODUCE:" + topic + ":" + key + ":" + message);
             String response = in.readLine();
             return response != null && response.startsWith("ACK");
+        }
+    }
+
+    public boolean createTopic(String topicName) throws IOException {
+        if (!connected) {
+            throw new IllegalStateException("Producer is not connected to broker");
+        }
+
+        if (topicName == null || topicName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Topic cannot be null or empty");
+        }
+
+        try {
+            // Send the message with key
+            out.println("CREATE-TOPIC:" + topicName);
+
+            // Wait for acknowledgment
+            String response = in.readLine();
+            if (response != null && response.startsWith("ACK")) {
+                System.out.println("TOPIC CREATED: " + response);
+            } else {
+                System.err.println("Failed to CREATE: " + response);
+            }
+        } catch (IOException e) {
+            System.err.println("Error sending message: " + e.getMessage());
+            reconnect();
+            out.println("CREATE-TOPIC:" + topicName);
+            String response = in.readLine();
+            return response != null && response.startsWith("ACK");
+        }
+        return false;
+    }
+
+    public void listTopics() throws IOException {
+        if (!connected) {
+            throw new IllegalStateException("Producer is not connected to broker");
+        }
+
+        out.println("LIST-TOPIC:");
+
+        String response = in.readLine();
+        if (response != null && response.startsWith("TOPIC-METADATA:")) {
+            System.out.println("Available Topics: " + response.substring(15));
+        } else {
+            System.err.println("Failed to list topics: " + response);
         }
     }
 
@@ -141,7 +186,9 @@ public class KafkaProducer {
         KafkaProducer producer = new KafkaProducer();
         try {
             producer.connect();
-            producer.send("test-topic", "hello kafka test");
+            UUID uuid = UUID.randomUUID();
+            producer.createTopic("test-topic");
+            producer.listTopics();
         } catch (IOException e) {
             System.err.println("Error: " + e.getMessage());
         } finally {

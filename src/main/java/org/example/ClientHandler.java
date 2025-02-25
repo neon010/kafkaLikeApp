@@ -2,6 +2,8 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.List;
+import java.util.Map;
 
 public class ClientHandler extends Thread {
     private final Socket socket;
@@ -28,20 +30,19 @@ public class ClientHandler extends Thread {
                     currentGroupId = parts[1];
                     currentConsumerId = parts[2];
                     out.println("REGISTERED: Consumer " + currentConsumerId + " in group " + currentGroupId);
-                }
-                else if (input.startsWith("PRODUCE:")) {
-                    String[] parts = input.split(":", 3);
-                    if (parts.length < 3) {
-                        out.println("ERROR: Invalid produce format. Use PRODUCE:topic:message");
+                }else if (input.startsWith("PRODUCE:")) {
+                    String[] parts = input.split(":", 4);
+                    if (parts.length < 4) {
+                        out.println("ERROR: Invalid produce format. Use PRODUCE:topic:key:message");
                         continue;
                     }
                     String topic = parts[1];
-                    String message = parts[2];
+                    String key = parts[2];
+                    String message = parts[3];
 
-                    topicManager.addMessage(topic, message);
+                    topicManager.addMessage(topic, key, message);
                     out.println("ACK: Message stored in topic " + topic);
-                }
-                else if (input.startsWith("CONSUME:")) {
+                } else if (input.startsWith("CONSUME:")) {
                     String[] parts = input.split(":", 4);
                     if (parts.length < 4) {
                         out.println("ERROR: Invalid consume format. Use CONSUME:topic:groupId:consumerId");
@@ -51,12 +52,9 @@ public class ClientHandler extends Thread {
                     String groupId = parts[2];
                     String consumerId = parts[3];
 
-                    System.out.println("topic: "+ topic+ " groupId: "+ groupId+ " ConsumerID: "+ consumerId);
-
                     String message = topicManager.consumeMessage(topic, groupId, consumerId);
                     out.println("MESSAGE: " + (message != null ? message : "NO_MESSAGES"));
-                }
-                else if (input.startsWith("DISCONNECT:")) {
+                } else if (input.startsWith("DISCONNECT:")) {
                     String[] parts = input.split(":", 3);
                     if (parts.length >= 3) {
                         currentGroupId = parts[1];
@@ -65,8 +63,21 @@ public class ClientHandler extends Thread {
                     out.println("DISCONNECTED: Goodbye!");
                     socket.close();
                     break;
-                }
-                else {
+                } else if(input.startsWith("CREATE-TOPIC:")){
+                    String[] parts = input.split(":", 2);
+
+                    String topicName = parts[1];
+                    System.out.println("TOPIC NAME from createTopic: "+topicName);
+                    topicManager.createTopic(topicName);
+                    out.println("ACK: TOPIC CREATED");
+                }else if(input.startsWith("LIST-TOPIC:")){
+                    String topicMetaData = topicManager.listTopics();
+                    if (topicMetaData.isEmpty()) {
+                        out.println("TOPIC-METADATA: No topics available");
+                    } else {
+                        out.println("TOPIC-METADATA: " + topicMetaData);
+                    }
+                } else {
                     out.println("ERROR: Unknown command");
                 }
             }

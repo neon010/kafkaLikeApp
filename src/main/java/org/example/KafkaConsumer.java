@@ -40,8 +40,18 @@ public class KafkaConsumer {
             System.out.println("ERROR: Consumer is not connected to broker!");
             return;
         }
+
+        // Send SUBSCRIBE command to broker - this is the key change
+        out.println("SUBSCRIBE:" + topic);
+        try {
+            String response = in.readLine();
+            System.out.println("Subscription Response: " + response);
+        } catch (IOException e) {
+            System.out.println("ERROR: Failed to subscribe: " + e.getMessage());
+            return;
+        }
+
         this.subscribedTopic = topic;
-        System.out.println("Subscribed to topic: " + topic);
     }
 
     public List<String> poll() {
@@ -92,34 +102,8 @@ public class KafkaConsumer {
         }
     }
 
-    public static void main(String[] args) {
-//        if (args.length < 2) {
-//            System.out.println("Usage: java KafkaConsumer <group-id> <topic>");
-//            return;
-//        }
-
-        KafkaConsumer consumer1 = new KafkaConsumer("group1");
-        KafkaConsumer consumer2 = new KafkaConsumer("group2");
-        consumer1.connect("localhost", 9092);
-        consumer2.connect("localhost", 9092);
-        consumer1.subscribe("test-topic");
-        consumer2.subscribe("test-topic");
-
-        // Example usage with polling
-        try {
-            while (true) {
-                List<String> records1 = consumer1.poll(1000);
-                List<String> records2 = consumer1.poll(1000);
-                for (String record : records1) {
-                    System.out.println("Received on group1: " + record);
-                }
-                for (String record : records2) {
-                    System.out.println("Received on group2: " + record);
-                }
-            }
-        } finally {
-            consumer1.disconnect();
-            consumer2.disconnect();
-        }
+    // Getter for consumerId
+    public String getConsumerId() {
+        return consumerId;
     }
 }

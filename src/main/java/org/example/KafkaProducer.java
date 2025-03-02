@@ -111,8 +111,10 @@ public class KafkaProducer {
             String response = in.readLine();
             if (response != null && response.startsWith("ACK")) {
                 System.out.println("TOPIC CREATED: " + response);
+                return true;
             } else {
                 System.err.println("Failed to CREATE: " + response);
+                return false;
             }
         } catch (IOException e) {
             System.err.println("Error sending message: " + e.getMessage());
@@ -121,7 +123,6 @@ public class KafkaProducer {
             String response = in.readLine();
             return response != null && response.startsWith("ACK");
         }
-        return false;
     }
 
     public void listTopics() throws IOException {
@@ -167,32 +168,6 @@ public class KafkaProducer {
                 System.err.println("Error closing resources: " + e.getMessage());
             }
             System.out.println("Disconnected from broker.");
-        }
-    }
-
-    public static void main(String[] args) {
-//        if (args.length < 2) {
-//            System.out.println("Usage: java KafkaProducer <topic> <message>");
-//            return;
-//        }
-
-//        String topic = args[0];
-//        StringBuilder messageBuilder = new StringBuilder();
-//        for (int i = 1; i < args.length; i++) {
-//            messageBuilder.append(args[i]).append(" ");
-//        }
-//        String message = messageBuilder.toString().trim();
-
-        KafkaProducer producer = new KafkaProducer();
-        try {
-            producer.connect();
-            UUID uuid = UUID.randomUUID();
-            producer.createTopic("test-topic");
-            producer.listTopics();
-        } catch (IOException e) {
-            System.err.println("Error: " + e.getMessage());
-        } finally {
-            producer.disconnect();
         }
     }
 }

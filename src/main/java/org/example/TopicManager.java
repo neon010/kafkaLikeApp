@@ -6,13 +6,15 @@ import java.util.concurrent.locks.ReentrantLock;
 
 class TopicManager {
     private final Map<String, List<Partition>> topicPartitions;
-    private final Map<String, Map<String, List<Integer>>> consumerGroupAssignments;
+    final Map<String, Map<String, List<Integer>>> consumerGroupAssignments;
+    private final Map<String, Set<String>> topicSubscriptions; // Track topic -> groups that are subscribed
     private final Map<String, Map<String, Map<Integer, ReentrantLock>>> consumerPartitionLocks;
     private final int defaultPartitionCount;
 
     public TopicManager(int partitionCount) {
         this.topicPartitions = new ConcurrentHashMap<>();
         this.consumerGroupAssignments = new ConcurrentHashMap<>();
+        this.topicSubscriptions = new ConcurrentHashMap<>();
         this.consumerPartitionLocks = new ConcurrentHashMap<>();
         this.defaultPartitionCount = partitionCount;
     }
@@ -27,6 +29,7 @@ class TopicManager {
             topicPartitions.put(topic, partitions);
         }
     }
+
     public String listTopics() {
         StringBuilder result = new StringBuilder();
         for (Map.Entry<String, List<Partition>> entry : topicPartitions.entrySet()) {
@@ -42,12 +45,8 @@ class TopicManager {
             result.append("]\n");
         }
         return result.toString().trim();
-//        Map<String, Integer> topicDetails = new HashMap<>();
-//        for (Map.Entry<String, List<Partition>> entry : topicPartitions.entrySet()) {
-//            topicDetails.put(entry.getKey(), entry.getValue());
-//        }
-//        return topicDetails;
     }
+
     public void addMessage(String topic, String key, String message) {
         createTopic(topic);
         List<Partition> partitions = topicPartitions.get(topic);
@@ -104,6 +103,11 @@ class TopicManager {
         Map<String, List<Integer>> groupAssignments = consumerGroupAssignments.get(groupId);
         groupAssignments.putIfAbsent(consumerId, new ArrayList<>());
 
+        // Keep track of topic subscriptions for the group
+        topicSubscriptions.putIfAbsent(topic, new HashSet<>());
+        topicSubscriptions.get(topic).add(groupId);
+
+        // If empty or we explicitly need a rebalance
         if (groupAssignments.get(consumerId).isEmpty()) {
             rebalanceGroup(topic, groupId);
         }
@@ -111,35 +115,49 @@ class TopicManager {
         return groupAssignments.get(consumerId);
     }
 
-    private void rebalanceGroup(String topic, String groupId) {
+    public void subscribeToTopic(String topic, String groupId, String consumerId) {
+        // Create topic if it doesn't exist
+        createTopic(topic);
+
+        // Register this group for the topic
+        topicSubscriptions.putIfAbsent(topic, new HashSet<>());
+        topicSubscriptions.get(topic).add(groupId);
+
+        // Ensure consumer is in the group
+        consumerGroupAssignments.putIfAbsent(groupId, new ConcurrentHashMap<>());
+        consumerGroupAssignments.get(groupId).putIfAbsent(consumerId, new ArrayList<>());
+
+        // Force rebalance for this topic and group
+        rebalanceGroup(topic, groupId);
+    }
+
+    public void rebalanceGroup(String topic, String groupId) {
         Map<String, List<Integer>> groupAssignments = consumerGroupAssignments.get(groupId);
         List<String> consumers = new ArrayList<>(groupAssignments.keySet());
-
-        if (consumers.isEmpty()) {
-            return;
-        }
-
-        // Sort consumers to ensure consistent assignment
         Collections.sort(consumers);
 
-        // Clear existing assignments
+        // Get actual partitions for the topic (not the default!)
+        int numPartitions = topicPartitions.get(topic).size();
+
+        // Clear existing assignments for this topic only
         for (String consumer : consumers) {
+            // Remove only assignments for this topic
             groupAssignments.put(consumer, new ArrayList<>());
         }
 
-        // Assign partitions in a balanced way
-        int consumerCount = consumers.size();
-        int partitionsPerConsumer = defaultPartitionCount / consumerCount;
-        int remainingPartitions = defaultPartitionCount % consumerCount;
+        // Assign partitions to consumers in round-robin
+        int consumerIndex = 0;
+        for (int partitionId = 0; partitionId < numPartitions; partitionId++) {
+            if (consumers.isEmpty()) break;
+            String consumer = consumers.get(consumerIndex % consumers.size());
+            groupAssignments.get(consumer).add(partitionId);
+            consumerIndex++;
+        }
 
-        int currentPartition = 0;
-        for (int i = 0; i < consumerCount; i++) {
-            String consumer = consumers.get(i);
-            int partitionsToAssign = partitionsPerConsumer + (i < remainingPartitions ? 1 : 0);
-
-            for (int j = 0; j < partitionsToAssign; j++) {
-                groupAssignments.get(consumer).add(currentPartition++);
-            }
+        // Debug output
+        System.out.println("REBALANCE for topic " + topic + " and group " + groupId);
+        for (String consumer : consumers) {
+            System.out.println("  Consumer " + consumer + " assigned: " + groupAssignments.get(consumer));
         }
     }
 }

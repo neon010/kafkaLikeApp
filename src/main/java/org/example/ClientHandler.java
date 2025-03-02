@@ -2,8 +2,10 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientHandler extends Thread {
     private final Socket socket;
@@ -29,8 +31,33 @@ public class ClientHandler extends Thread {
                     String[] parts = input.split(":", 3);
                     currentGroupId = parts[1];
                     currentConsumerId = parts[2];
+
+                    // Add consumer to group and trigger rebalance
+                    topicManager.consumerGroupAssignments
+                            .computeIfAbsent(currentGroupId, k -> new ConcurrentHashMap<>())
+                            .putIfAbsent(currentConsumerId, new ArrayList<>());
+
                     out.println("REGISTERED: Consumer " + currentConsumerId + " in group " + currentGroupId);
-                }else if (input.startsWith("PRODUCE:")) {
+                } else if (input.startsWith("SUBSCRIBE:")) {
+                    String[] parts = input.split(":", 2);
+                    if (parts.length < 2) {
+                        out.println("ERROR: Invalid subscribe format. Use SUBSCRIBE:topic");
+                        continue;
+                    }
+
+                    if (currentGroupId == null || currentConsumerId == null) {
+                        out.println("ERROR: Consumer must be registered before subscribing");
+                        continue;
+                    }
+
+                    String topic = parts[1];
+
+                    // Handle subscription and trigger rebalance
+                    topicManager.subscribeToTopic(topic, currentGroupId, currentConsumerId);
+
+                    out.println("SUBSCRIBED: to topic " + topic + " with group " + currentGroupId);
+
+                } else if (input.startsWith("PRODUCE:")) {
                     String[] parts = input.split(":", 4);
                     if (parts.length < 4) {
                         out.println("ERROR: Invalid produce format. Use PRODUCE:topic:key:message");
@@ -63,14 +90,14 @@ public class ClientHandler extends Thread {
                     out.println("DISCONNECTED: Goodbye!");
                     socket.close();
                     break;
-                } else if(input.startsWith("CREATE-TOPIC:")){
+                } else if(input.startsWith("CREATE-TOPIC:")) {
                     String[] parts = input.split(":", 2);
 
                     String topicName = parts[1];
                     System.out.println("TOPIC NAME from createTopic: "+topicName);
                     topicManager.createTopic(topicName);
                     out.println("ACK: TOPIC CREATED");
-                }else if(input.startsWith("LIST-TOPIC:")){
+                } else if(input.startsWith("LIST-TOPIC:")) {
                     String topicMetaData = topicManager.listTopics();
                     if (topicMetaData.isEmpty()) {
                         out.println("TOPIC-METADATA: No topics available");
